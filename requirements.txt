@@ -3,3 +3,4 @@ scp
 clint
 colorama
 pyfiglet
+tabulate

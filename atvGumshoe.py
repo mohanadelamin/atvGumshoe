@@ -248,7 +248,9 @@ def main():
                     ]
 
                 headers = ["SSID", "ADDED BY", "OS VERSION", "ADDED AT (UTC)"]
-                print(tabulate([[k,] + v for k,v in sorted(wifi_dict.items(), key=lambda i:i[1][2]) ],headers = headers))
+                #print(tabulate([[k,] + v for k,v in sorted(wifi_dict.items(), key=lambda i:i[1][2]) ],headers = headers))
+                print(
+                    tabulate([[k, ] + v for k, v in wifi_dict.items()], headers=headers))
                 input("\nPress any key to go to main menu.")
                 continue
             else:

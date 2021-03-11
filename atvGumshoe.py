@@ -57,7 +57,10 @@ FORENSIC_FILES = {
     'location': '/private/var/mobile/Library/SyncedPreferences/com.apple.cloudrecents.CloudRecentsAgent-com.apple.eventkit.locations.plist',
     'app_ids' : '/private/var/mobile/Library/UserNotificationsServer/Library.plist',
     'apple_app_info': '/Applications/APPNAME/Info.plist',
-    'other_app_info': '/private/var/containers/Bundle/Application/UUID/iTunesMetadata.plist'
+    'other_app_info': '/private/var/containers/Bundle/Application/UUID/iTunesMetadata.plist',
+    'appstored': '/private/var/mobile/Library/Preferences/com.apple.appstored.plist',
+    'tvsettings': '/private/var/mobile/Library/Preferences/com.apple.TVSettings.plist',
+    'systemversion': '/System/Library/CoreServices/SystemVersion.plist'
 }
 
 LOGGING_LEVELS = {
@@ -162,7 +165,7 @@ def get_cfAbsoluteTime(seconds):
     if seconds:
         cfAbsoluteTime = datetime.datetime.strptime("01-01-2001", "%m-%d-%Y")
         utc_time = cfAbsoluteTime + datetime.timedelta(seconds=seconds)
-    return utc_time.strftime('%b %d %Y %H:%M:%S')
+    return utc_time.strftime('%b %d %Y %H:%M:%S  (Estimate)')
 
 
 def fix_json(json_data):
@@ -185,6 +188,7 @@ def main():
     while True:
         os.system("clear")
         print(welcome("ATV GUMSHOE"))
+        print("ATV Gumshoe is an Apple TV Logical Forensic Tool. (For Jailbroken Devices)\n")
         print("Please select an option ")
         if STATUS:
             tv_tuple = ssh_client.get_transport().getpeername()
@@ -211,9 +215,63 @@ def main():
             print("*** Device Information ***\n")
             if STATUS:
                 try:
-                    pass
+                    serial_number = ''
+                    os_version = ''
+                    os_build = ''
+                    hw_model = ''
+                    device_id = ''
+
+                    # Get device Serial Number
+                    try:
+                        cmd = 'otctl status -j'
+                        result_out, result_err = run_cmd(ssh_client, cmd)
+                        result_data = json.load(result_out)
+                        serial_number = result_data['contextDump']['self']['stableInfo']['serial_number']
+                    except Exception as err:
+                        print("Getting Device Serial Number Failed - {}".format(err))
+
+                    # Get OS Version
+                    try:
+                        cmd = plutil_json + FORENSIC_FILES['systemversion']
+                        result_out, result_err = run_cmd(ssh_client, cmd)
+                        result_out_utf8 = fix_json(result_out.read().decode("utf-8"))
+                        result_data = json.loads(result_out_utf8)
+                        os_version = result_data['ProductName'] + ' ' \
+                                     + result_data['ProductVersion']
+                        os_build = result_data['ProductBuildVersion']
+                    except Exception as err:
+                        print("Getting OS Version Failed - {}".format(err))
+
+                    # Get HW Model
+                    try:
+                        cmd = plutil_json + FORENSIC_FILES['tvsettings']
+                        result_out, result_err = run_cmd(ssh_client, cmd)
+                        result_out_utf8 = fix_json(result_out.read().decode("utf-8"))
+                        result_data = json.loads(result_out_utf8)
+                        hw_model = result_data['SSDeviceType']['hardwareModel']
+                    except Exception as err:
+                        print("Getting HW Model Failed - {}".format(err))
+
+                    # Get Device ID
+                    try:
+                        cmd = plutil_json + FORENSIC_FILES['appstored']
+                        result_out, result_err = run_cmd(ssh_client, cmd)
+                        result_out_utf8 = fix_json(result_out.read().decode("utf-8"))
+                        result_data = json.loads(result_out_utf8)
+                        device_id = result_data['ArcadeDeviceGUID']
+                    except Exception as err:
+                        print("Getting Device ID Failed - {}".format(err))
+
+                    print('Serial Number: {}'.format(serial_number))
+                    print('HW Model: {}'.format(hw_model))
+                    print('OS Version: {}'.format(os_version))
+                    print('OS Built: {}'.format(os_build))
+                    print('Device ID: {}'.format(device_id))
+
                 except Exception as err:
                     print("Getting Device Info Failed - {}".format(err))
+                input("\nPress any key to go to main menu.")
+                continue
             else:
                 error("No device connected.")
                 input("Press any key to go to main menu.")
@@ -283,7 +341,7 @@ def main():
                             result_data['values'][ssid]['value'].get('added_at',
                                                                      get_cfAbsoluteTime(
                                                                          result_data['values'][ssid].get("timestamp", None))
-                                                                     ) + ' (Estimate)'
+                                                                     )
                         ]
 
                     headers = ["SSID", "ADDED BY", "OS VERSION", "ADDED AT (UTC)"]
@@ -362,7 +420,7 @@ def main():
                             get_cfAbsoluteTime(result_data['values'][record].get("timestamp", None)),
                             result_data['values'][record]['value'].get('S', "Not Available"),
                         ])
-                    headers = ['Name','Address','Timestamp','Source']
+                    headers = ['Name','Address','Timestamp (UTC)','Source']
                     print(tabulate(location_list, headers=headers))
                 except Exception as err:
                     print("Getting User Location History Failed - {}".format(err))

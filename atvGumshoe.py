@@ -19,6 +19,7 @@ import os
 import os.path
 import json
 import datetime
+import re
 import sys
 import pathlib
 import stat
@@ -52,6 +53,11 @@ STATUS = False
 
 FORENSIC_FILES = {
     'wifi': '/private/var/mobile/Library/SyncedPreferences/com.apple.wifid.plist',
+    'id_cache': '/private/var/mobile/Library/Preferences/com.apple.identityservices.idstatuscache.plist',
+    'location': '/private/var/mobile/Library/SyncedPreferences/com.apple.cloudrecents.CloudRecentsAgent-com.apple.eventkit.locations.plist',
+    'app_ids' : '/private/var/mobile/Library/UserNotificationsServer/Library.plist',
+    'apple_app_info': '/Applications/APPNAME/Info.plist',
+    'other_app_info': '/private/var/containers/Bundle/Application/UUID/iTunesMetadata.plist'
 }
 
 LOGGING_LEVELS = {
@@ -156,14 +162,26 @@ def get_cfAbsoluteTime(seconds):
     if seconds:
         cfAbsoluteTime = datetime.datetime.strptime("01-01-2001", "%m-%d-%Y")
         utc_time = cfAbsoluteTime + datetime.timedelta(seconds=seconds)
-    return utc_time.strftime('%b %d %Y %H:%M:%S (Estimate)')
+    return utc_time.strftime('%b %d %Y %H:%M:%S')
 
 
+def fix_json(json_data):
+    replacements = {
+        (',{1,}]', ']'),
+        (':}', ':\"\"}'),
+        (':,', ':\"\",')
+    }
+
+    for o,n in replacements:
+        json_data = re.sub(o, n, json_data)
+
+    return json_data
 
 def main():
     global STATUS
     ssh_client = ''
     plutil_json = 'plutil -showjson '
+    ls = 'ls '
     while True:
         os.system("clear")
         print(welcome("ATV GUMSHOE"))
@@ -176,14 +194,26 @@ def main():
         print("""\t2 : Device Info
         3 : Keychain Trusted Peers
         4 : User Wifi information
+        5 : User ID information
+        6 : User Location History
+        7 : Installed Applications
         0 : Exit""")
         c = input("\nEnter your choice : ")
 
         if c == '1':
-            ssh_client = ssh_login()
+            try:
+                ssh_client = ssh_login()
+            except Exception as err:
+                print("SSH Connection failed - {}".format(err))
         elif c == '2':
+            os.system("clear")
+            print(welcome("ATV GUMSHOE"))
+            print("*** Device Information ***\n")
             if STATUS:
-                pass
+                try:
+                    pass
+                except Exception as err:
+                    print("Getting Device Info Failed - {}".format(err))
             else:
                 error("No device connected.")
                 input("Press any key to go to main menu.")
@@ -191,37 +221,42 @@ def main():
         elif c == '3':
             os.system("clear")
             print(welcome("ATV GUMSHOE"))
+            print("*** Keychain Trusted Peers ***\n")
+            print("Data source: Octagon Trust utility - otctl\n")
             if STATUS:
-                cmd = 'otctl status -j'
-                result_out, result_err = run_cmd(ssh_client, cmd)
-                result_data = json.load(result_out)
-                trusted_peers = result_data['contextDump']['self']['dynamicInfo']['included']
-                excluded_peers = result_data['contextDump']['self']['dynamicInfo']['excluded']
-                trusted_peers_list = []
-                excluded_peers_list = []
-                self_list = []
-                for peer in result_data['contextDump']['peers']:
-                    if peer['peerID'] in trusted_peers:
-                        trusted_peers_list.append([peer['peerID'],
-                                                   peer['stableInfo']['serial_number'],
-                                                   peer['permanentInfo']['model_id'],
-                                                   peer['stableInfo']['os_version']])
-                    elif peer['peerID'] in excluded_peers:
-                        excluded_peers_list.append([peer['peerID'],
-                                                    peer['stableInfo']['serial_number'],
-                                                    peer['permanentInfo']['model_id'],
-                                                    peer['stableInfo']['os_version']])
-                self_list.append([result_data['contextDump']['self']['peerID'],
-                                  result_data['contextDump']['self']['stableInfo']['serial_number'],
-                                  result_data['contextDump']['self']['permanentInfo']['model_id'],
-                                  result_data['contextDump']['self']['stableInfo']['os_version']])
-                print("\nDevice Trust Network collected from the Octagon Trust utility - otctl:\n")
-                print("Device Self Information:")
-                print(tabulate(self_list, headers=['ID', 'SN', 'Model', 'OS Version']))
-                print("\nTrusted peers:")
-                print(tabulate(trusted_peers_list, headers=['Peer ID', 'SN', 'Model', 'OS Version']))
-                print("\nExcluded peers:")
-                print(tabulate(excluded_peers_list, headers=['Peer ID', 'SN', 'Model', 'OS Version']))
+                try:
+                    cmd = 'otctl status -j'
+                    result_out, result_err = run_cmd(ssh_client, cmd)
+                    result_data = json.load(result_out)
+                    trusted_peers = result_data['contextDump']['self']['dynamicInfo']['included']
+                    excluded_peers = result_data['contextDump']['self']['dynamicInfo']['excluded']
+                    trusted_peers_list = []
+                    excluded_peers_list = []
+                    self_list = []
+                    for peer in result_data['contextDump']['peers']:
+                        if peer['peerID'] in trusted_peers:
+                            trusted_peers_list.append([peer['peerID'],
+                                                       peer['stableInfo']['serial_number'],
+                                                       peer['permanentInfo']['model_id'],
+                                                       peer['stableInfo']['os_version']])
+                        elif peer['peerID'] in excluded_peers:
+                            excluded_peers_list.append([peer['peerID'],
+                                                        peer['stableInfo']['serial_number'],
+                                                        peer['permanentInfo']['model_id'],
+                                                        peer['stableInfo']['os_version']])
+                    self_list.append([result_data['contextDump']['self']['peerID'],
+                                      result_data['contextDump']['self']['stableInfo']['serial_number'],
+                                      result_data['contextDump']['self']['permanentInfo']['model_id'],
+                                      result_data['contextDump']['self']['stableInfo']['os_version']])
+                    print("\nDevice Trust Network collected from the Octagon Trust utility - otctl:\n")
+                    print("Device Self Information:")
+                    print(tabulate(self_list, headers=['ID', 'SN', 'Model', 'OS Version']))
+                    print("\nTrusted peers:")
+                    print(tabulate(trusted_peers_list, headers=['Peer ID', 'SN', 'Model', 'OS Version']))
+                    print("\nExcluded peers:")
+                    print(tabulate(excluded_peers_list, headers=['Peer ID', 'SN', 'Model', 'OS Version']))
+                except Exception as err:
+                    print("Getting Keychain Trusted Peers Failed - {}".format(err))
                 input("\nPress any key to go to main menu.")
                 continue
             else:
@@ -231,26 +266,161 @@ def main():
         elif c == '4':
             os.system("clear")
             print(welcome("ATV GUMSHOE"))
+            print("*** User Wifi information ***\n")
+            print("Data source file: " + FORENSIC_FILES['wifi'] + '\n')
             if STATUS:
-                wifi_dict = {}
-                cmd = plutil_json + FORENSIC_FILES['wifi']
-                result_out, result_err = run_cmd(ssh_client, cmd)
-                result_out_utf8 = result_out.read().decode("utf-8").replace(":,",":\"\",")
-                result_data = json.loads(result_out_utf8)
-                for ssid in result_data['values']:
-                    wifi_dict[ssid] = [
-                        result_data['values'][ssid]['value'].get('added_by', "Not Available"),
-                        result_data['values'][ssid]['value'].get('added_by_os_ver', "Not Available"),
-                        result_data['values'][ssid]['value'].get('added_at',
-                                                                 get_cfAbsoluteTime(
-                                                                     result_data['values'][ssid].get("timestamp", None))
-                                                                 )
-                    ]
+                try:
+                    wifi_dict = {}
+                    cmd = plutil_json + FORENSIC_FILES['wifi']
+                    result_out, result_err = run_cmd(ssh_client, cmd)
+                    #result_out_utf8 = result_out.read().decode("utf-8").replace(":,",":\"\",")
+                    result_out_utf8 = fix_json(result_out.read().decode("utf-8"))
+                    result_data = json.loads(result_out_utf8)
+                    for ssid in result_data['values']:
+                        wifi_dict[ssid] = [
+                            result_data['values'][ssid]['value'].get('added_by', "Not Available"),
+                            result_data['values'][ssid]['value'].get('added_by_os_ver', "Not Available"),
+                            result_data['values'][ssid]['value'].get('added_at',
+                                                                     get_cfAbsoluteTime(
+                                                                         result_data['values'][ssid].get("timestamp", None))
+                                                                     ) + ' (Estimate)'
+                        ]
 
-                headers = ["SSID", "ADDED BY", "OS VERSION", "ADDED AT (UTC)"]
-                #print(tabulate([[k,] + v for k,v in sorted(wifi_dict.items(), key=lambda i:i[1][2]) ],headers = headers))
-                print(
-                    tabulate([[k, ] + v for k, v in wifi_dict.items()], headers=headers))
+                    headers = ["SSID", "ADDED BY", "OS VERSION", "ADDED AT (UTC)"]
+                    #print(tabulate([[k,] + v for k,v in sorted(wifi_dict.items(), key=lambda i:i[1][2]) ],headers = headers))
+                    print(
+                        tabulate([[k, ] + v for k, v in wifi_dict.items()], headers=headers))
+                except Exception as err:
+                    print("Getting User Wifi information Failed - {}".format(err))
+                input("\nPress any key to go to main menu.")
+                continue
+            else:
+                error("No device connected.")
+                input("Press any key to go to main menu.")
+                continue
+        elif c == '5':
+            os.system("clear")
+            print(welcome("ATV GUMSHOE"))
+            print("*** User ID information ***\n")
+            print("Data source file: " + FORENSIC_FILES['id_cache'] + '\n')
+            if STATUS:
+                try:
+                    id_dict = {
+                        'icloud': [],
+                        'fmd': [],
+                        'cloudmessaging': [],
+                        'nearby': [],
+                    }
+                    cmd = plutil_json + FORENSIC_FILES['id_cache']
+                    result_out, result_err = run_cmd(ssh_client, cmd)
+                    #result_out_utf8 = result_out.read().decode("utf-8").replace(":,", ":\"\",")
+                    result_out_utf8 = fix_json(result_out.read().decode("utf-8"))
+                    result_data = json.loads(result_out_utf8)
+                    for record in result_data.keys():
+                        if 'icloudpairing' in record:
+                            id_dict['icloud'] = result_data[record].keys()
+                        elif 'fmd' in record:
+                            id_dict['fmd'] = result_data[record].keys()
+                        elif 'cloudmessaging' in record:
+                            id_dict['cloudmessaging'] = result_data[record].keys()
+                        elif 'nearby' in record:
+                            id_dict['nearby'] = result_data[record].keys()
+                    headers = ['Number','ID']
+                    print("User Apple ID:")
+                    print(tabulate(zip(range(1,len(id_dict['icloud'])+1),id_dict['icloud']),headers=headers))
+                    print("\nUser family member IDS:")
+                    print(tabulate(zip(range(1,len(id_dict['fmd'])+1),id_dict['fmd']),headers=headers))
+                    print("\nUser messaging IDs:")
+                    print(tabulate(zip(range(1,len(id_dict['cloudmessaging'])+1),id_dict['cloudmessaging']),headers=headers))
+                    print("\nUser nearby IDs:")
+                    print(tabulate(zip(range(1,len(id_dict['nearby'])+1),id_dict['nearby']),headers=headers))
+                except Exception as err:
+                    print("Getting User ID information Failed - {}".format(err))
+                input("\nPress any key to go to main menu.")
+                continue
+            else:
+                error("No device connected.")
+                input("Press any key to go to main menu.")
+                continue
+        elif c == '6':
+            os.system("clear")
+            print(welcome("ATV GUMSHOE"))
+            print("*** User Location History ***\n")
+            print("Data source file: " + FORENSIC_FILES['location'] + '\n')
+            if STATUS:
+                try:
+                    location_list = []
+                    cmd = plutil_json + FORENSIC_FILES['location']
+                    result_out, result_err = run_cmd(ssh_client, cmd)
+                    result_out_utf8 = fix_json(result_out.read().decode("utf-8"))
+                    result_data = json.loads(result_out_utf8)
+
+                    for record in result_data['values'].keys():
+                        location_list.append([
+                            result_data['values'][record]['value'].get('n', "Not Available"),
+                            result_data['values'][record]['value'].get('a', "Not Available"),
+                            get_cfAbsoluteTime(result_data['values'][record].get("timestamp", None)),
+                            result_data['values'][record]['value'].get('S', "Not Available"),
+                        ])
+                    headers = ['Name','Address','Timestamp','Source']
+                    print(tabulate(location_list, headers=headers))
+                except Exception as err:
+                    print("Getting User Location History Failed - {}".format(err))
+                input("\nPress any key to go to main menu.")
+                continue
+            else:
+                error("No device connected.")
+                input("Press any key to go to main menu.")
+                continue
+        elif c == '7':
+            os.system("clear")
+            print(welcome("ATV GUMSHOE"))
+            print("*** Installed Application ***\n")
+            if STATUS:
+                try:
+                    apple_app_list = []
+                    other_app_list = []
+
+                    # Get the list of Apple Installed Apps
+                    cmd = ls + FORENSIC_FILES['apple_app_info'].split("/APPNAME/")[0]
+                    apple_result_out, apple_result_err = run_cmd(ssh_client, cmd)
+
+
+                    # Parse the Apple Apps information
+                    for app in apple_result_out.readlines():
+                        cmd = plutil_json + FORENSIC_FILES['apple_app_info'].replace('APPNAME', app.rstrip())
+                        apple_result_out, result_err = run_cmd(ssh_client, cmd)
+                        apple_result_out_utf8 = fix_json(apple_result_out.read().decode("utf-8"))
+                        apple_result_data = json.loads(apple_result_out_utf8)
+                        apple_app_list.append([apple_result_data["CFBundleName"],
+                                               apple_result_data["CFBundleVersion"],
+                                               apple_result_data["CFBundleIdentifier"]])
+
+                    # Print Application Lists
+                    print("** Apple Internal Applications **")
+                    print("Data location /Applications/<APPNAME>/Info.plist\n")
+                    headers = ['App Name','App Version','App Bundle ID']
+                    print(tabulate(apple_app_list, headers=headers))
+
+                    # Get the list of Other Installed Apps
+                    cmd = ls + FORENSIC_FILES['other_app_info'].split("/UUID/")[0]
+                    other_result_out, other_result_err = run_cmd(ssh_client, cmd)
+                    # Parse the Other Apps information
+                    for app in other_result_out.readlines():
+                        cmd = plutil_json + FORENSIC_FILES['other_app_info'].replace('UUID', app.rstrip())
+                        other_result_out, other_result_err = run_cmd(ssh_client, cmd)
+                        other_result_out_utf8 = fix_json(other_result_out.read().decode("utf-8"))
+                        other_result_data = json.loads(other_result_out_utf8)
+                        other_app_list.append([other_result_data["itemName"],
+                                               other_result_data["bundleVersion"],
+                                               other_result_data["softwareVersionBundleId"]])
+
+                    print("\n\n** User Installed Applications **")
+                    print("Data location /private/var/containers/Bundle/Application/<APP UUID>/iTunesMetadata.plist\n")
+                    print(tabulate(other_app_list, headers=headers))
+
+                except Exception as err:
+                    print("Getting User Location History Failed - {}".format(err))
                 input("\nPress any key to go to main menu.")
                 continue
             else:

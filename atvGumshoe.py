@@ -129,7 +129,7 @@ def ssh_login():
     global STATUS
     os.system("clear")
     print(welcome("ATV GUMSHOE"))
-    host = input("Enter the Apple TV IP Address [192.168.1.151]: ") or "192.168.1.151"
+    host = input("Enter the Apple TV IP Address: ") or "192.168.1.151"
     port = int(input("Enter the Apple TV SSH Port [44]: ") or 44)
     username = input("Enter the Apple TV username [root]: ") or "root"
     password = getpass("Enter the Apple TV password [alpine]: ") or "alpine"
@@ -165,7 +165,7 @@ def get_cfAbsoluteTime(seconds):
     if seconds:
         cfAbsoluteTime = datetime.datetime.strptime("01-01-2001", "%m-%d-%Y")
         utc_time = cfAbsoluteTime + datetime.timedelta(seconds=seconds)
-    return utc_time.strftime('%b %d %Y %H:%M:%S  (Estimate)')
+    return utc_time.strftime('%b %d %Y %H:%M:%S')
 
 
 def fix_json(json_data):
@@ -331,7 +331,6 @@ def main():
                     wifi_dict = {}
                     cmd = plutil_json + FORENSIC_FILES['wifi']
                     result_out, result_err = run_cmd(ssh_client, cmd)
-                    #result_out_utf8 = result_out.read().decode("utf-8").replace(":,",":\"\",")
                     result_out_utf8 = fix_json(result_out.read().decode("utf-8"))
                     result_data = json.loads(result_out_utf8)
                     for ssid in result_data['values']:
@@ -341,6 +340,7 @@ def main():
                             result_data['values'][ssid]['value'].get('added_at',
                                                                      get_cfAbsoluteTime(
                                                                          result_data['values'][ssid].get("timestamp", None))
+                                                                     + ' (Estimate)'
                                                                      )
                         ]
 
